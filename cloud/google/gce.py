@@ -210,6 +210,8 @@ try:
 except ImportError:
     HAS_PYTHON26 = False
 
+import logging
+logging.getLogger('libcloud.common.google').addHandler(logging.NullHandler())
 
 def get_instance_info(inst):
     """Retrieves instance information from an instance object and returns it

@@ -161,6 +161,8 @@ try:
 except ImportError:
     HAS_LIBCLOUD = False
 
+import logging
+logging.getLogger('libcloud.common.google').addHandler(logging.NullHandler())
 
 def main():
     module = AnsibleModule(

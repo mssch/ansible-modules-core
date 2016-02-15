@@ -135,6 +135,9 @@ try:
 except ImportError:
     HAS_LIBCLOUD = False
 
+import logging
+logging.getLogger('libcloud.common.google').addHandler(logging.NullHandler())
+
 def format_allowed_section(allowed):
     """Format each section of the allowed list"""
     if allowed.count(":") == 0:
