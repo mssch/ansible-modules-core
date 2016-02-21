@@ -193,6 +193,8 @@ EXAMPLES = '''
         instance_names: {{gce.instance_names}}
 
 '''
+#FIXME
+import time
 
 try:
     from libcloud.compute.types import Provider
@@ -353,11 +355,16 @@ def create_instances(module, gce, instance_names):
             except ResourceExistsError:
                 pd = gce.ex_get_volume("%s" % name, lc_zone)
         inst = None
+        # FIXME
+        creation_duration = None
         try:
+            # FIXME
+            start_create = time.time()
             inst = gce.create_node(name, lc_machine_type, lc_image,
-                    location=lc_zone, ex_network=network, ex_tags=tags,
-                    ex_metadata=metadata, ex_boot_disk=pd, ex_can_ip_forward=ip_forward,
-                    external_ip=external_ip, ex_disk_auto_delete=disk_auto_delete, ex_service_accounts=ex_sa_perms)
+            location=lc_zone, ex_network=network, ex_tags=tags,
+            ex_metadata=metadata, ex_boot_disk=pd, ex_can_ip_forward=ip_forward,
+            external_ip=external_ip, ex_disk_auto_delete=disk_auto_delete, ex_service_accounts=ex_sa_perms)
+            creation_duration = time.time() - start_create
             changed = True
         except ResourceExistsError:
             inst = gce.ex_get_node(name, lc_zone)
@@ -394,6 +401,17 @@ def create_instances(module, gce, instance_names):
     instance_json_data = []
     for inst in new_instances:
         d = get_instance_info(inst)
+        d['creation_duration']=creation_duration
+        # not sure about stopping status...
+        if (state in ('active', 'running') and
+                d['status'] in ('STOPPING', 'TERMINATED')):
+            start = time.time()
+            gce.ex_start_node(inst)
+            d['start_duration']=(time.time() - start)
+            # need to wait till the external ip is up then update it
+            inst = gce.ex_get_node(name, lc_zone)
+            d['public_ip']=inst.public_ips[0]
+            d['status']='RUNNING'
         instance_names.append(d['name'])
         instance_json_data.append(d)
 
@@ -440,7 +458,8 @@ def main():
             network = dict(default='default'),
             persistent_boot_disk = dict(type='bool', default=False),
             disks = dict(type='list'),
-            state = dict(choices=['active', 'present', 'absent', 'deleted'],
+            state = dict(choices=['active', 'running', 'present', 'stopped',
+                    'absent', 'deleted'],
                     default='present'),
             tags = dict(type='list'),
             zone = dict(default='us-central1-a'),
@@ -489,8 +508,8 @@ def main():
         module.fail_json(msg='Must specify a "zone"', changed=False)
 
     json_output = {'zone': zone}
-    if state in ['absent', 'deleted']:
-        json_output['state'] = 'absent'
+    if state in ['stopped', 'absent', 'deleted']:
+        json_output['state'] = 'stopped' if state == 'stopped' else 'absent'
         (changed, terminated_instance_names) = terminate_instances(module,
                 gce, inames, zone)
 
@@ -501,10 +520,10 @@ def main():
         elif name:
             json_output['name'] = name
 
-    elif state in ['active', 'present']:
-        json_output['state'] = 'present'
+    elif state in ['active', 'running', 'present']:
+        json_output['state'] = 'present' if state == 'present' else 'running'
         (changed, instance_data,instance_name_list) = create_instances(
-                module, gce, inames)
+            module, gce, inames)
         json_output['instance_data'] = instance_data
         if instance_names:
             json_output['instance_names'] = instance_name_list
