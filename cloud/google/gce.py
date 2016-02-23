@@ -117,7 +117,7 @@ options:
   external_ip:
     version_added: "1.9"
     description:
-      - type of external ip, ephemeral by default
+      - type of external ip, ephemeral by default; alternatively, a list of fixed gce ips or ip names can be given (if there is not enough specified ip, 'ephemeral' will be used)
     required: false
     default: "ephemeral"
   disk_auto_delete:
@@ -195,12 +195,14 @@ EXAMPLES = '''
 '''
 #FIXME
 import time
+import socket
 
 try:
     from libcloud.compute.types import Provider
     from libcloud.compute.providers import get_driver
     from libcloud.common.google import GoogleBaseError, QuotaExceededError, \
             ResourceExistsError, ResourceInUseError, ResourceNotFoundError
+    from libcloud.compute.drivers.gce import GCEAddress
     _ = Provider.GCE
     HAS_LIBCLOUD = True
 except ImportError:
@@ -285,7 +287,23 @@ def create_instances(module, gce, instance_names):
     service_account_email = module.params.get('service_account_email')
 
     if external_ip == "none":
-        external_ip = None
+        instance_external_ip = None
+    elif not isinstance(external_ip, basestring):
+        try:
+            if len(external_ip) != 0:
+                instance_external_ip = external_ip.pop(0)
+                # check if instance_external_ip is an ip or a name
+                try:
+                    socket.inet_aton(instance_external_ip)
+                    instance_external_ip = GCEAddress(id='unknown', name='unknown', address=instance_external_ip, region='unknown', driver=gce)
+                except socket.error:
+                    instance_external_ip = gce.ex_get_address(instance_external_ip)
+            else:
+                instance_external_ip = 'ephemeral'
+        except GoogleBaseError, e:
+            module.fail_json(msg='Unexpected error attempting to get a static ip %s, error: %s' % (external_ip, e.value))
+    else:
+        instance_external_ip = external_ip
 
     new_instances = []
     changed = False
@@ -363,7 +381,8 @@ def create_instances(module, gce, instance_names):
             inst = gce.create_node(name, lc_machine_type, lc_image,
             location=lc_zone, ex_network=network, ex_tags=tags,
             ex_metadata=metadata, ex_boot_disk=pd, ex_can_ip_forward=ip_forward,
-            external_ip=external_ip, ex_disk_auto_delete=disk_auto_delete, ex_service_accounts=ex_sa_perms)
+            external_ip=instance_external_ip, ex_disk_auto_delete=disk_auto_delete, 
+            ex_service_accounts=ex_sa_perms)
             creation_duration = time.time() - start_create
             changed = True
         except ResourceExistsError:
@@ -468,8 +487,7 @@ def main():
             pem_file = dict(type='str', default=''),
             project_id = dict(),
             ip_forward = dict(type='bool', default=False),
-            external_ip = dict(choices=['ephemeral', 'none'],
-                    default='ephemeral'),
+            external_ip = dict(default='ephemeral'),
             disk_auto_delete = dict(type='bool', default=True),
             api_version = dict(type='str', default='v1'),
         )
