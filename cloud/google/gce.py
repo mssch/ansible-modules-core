@@ -471,6 +471,7 @@ def main():
             external_ip = dict(choices=['ephemeral', 'none'],
                     default='ephemeral'),
             disk_auto_delete = dict(type='bool', default=True),
+            api_version = dict(type='str', default='v1'),
         )
     )
 
